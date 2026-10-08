@@ -10,7 +10,7 @@ from typing import Literal
 
 from fastapi import HTTPException, Request
 from pydantic import BaseModel, Field
-from gig_backend.speech import api_key, MODEL, VOICE
+from gig_backend.speech import api_key, fish_model, fish_voice
 
 
 class Offer(BaseModel):
@@ -75,7 +75,7 @@ def install_live_voice(app, authenticate, root):
                 settings=OLLamaLLMService.Settings(model=os.getenv('GIG_MODEL', 'qwen3:4b'),
                     max_tokens=256, extra={'extra_body': {'think': False}}))
             tts = FishAudioTTSService(api_key=api_key(root), output_format='pcm',
-                settings=FishAudioTTSService.Settings(model=MODEL, voice=VOICE))
+                settings=FishAudioTTSService.Settings(model=fish_model(), voice=fish_voice()))
             context = LLMContext([{'role':'system','content':VOICE_PROMPT}])
             user, assistant = LLMContextAggregatorPair(context,
                 user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()))
@@ -110,7 +110,7 @@ def install_live_voice(app, authenticate, root):
         if state['owner'] is not None and state['owner'] is not owner:
             return {'phase':'busy', 'error':None}
         return {'phase':state['phase'], 'error':state['error'],
-                'tts':'Fish Audio '+MODEL, 'stt':os.getenv('GIG_STT_MODEL','base'),
+                'tts':'Fish Audio '+fish_model(), 'stt':os.getenv('GIG_STT_MODEL','base'),
                 'stt_device':os.getenv('GIG_STT_DEVICE','cpu'),
                 'session_limit_minutes':15, 'tools_enabled':False}
 

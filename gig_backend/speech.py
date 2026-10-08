@@ -6,8 +6,16 @@ from pathlib import Path
 import httpx
 from fastapi import HTTPException
 
-VOICE = '77cb6d35c3b64dda804ad4df94d6008f'
-MODEL = 's2.1-pro-free'
+DEFAULT_VOICE = '77cb6d35c3b64dda804ad4df94d6008f'
+DEFAULT_MODEL = 's2.1-pro-free'
+
+
+def fish_voice():
+    return os.getenv('GIG_FISH_VOICE_ID', DEFAULT_VOICE).strip() or DEFAULT_VOICE
+
+
+def fish_model():
+    return os.getenv('GIG_FISH_MODEL', DEFAULT_MODEL).strip() or DEFAULT_MODEL
 
 
 @dataclass(frozen=True)
@@ -55,8 +63,8 @@ def synthesize_with_metrics(text, root):
     try:
         with httpx.Client(timeout=httpx.Timeout(40, connect=10), trust_env=False) as client:
             with client.stream('POST', 'https://api.fish.audio/v1/tts',
-                headers={'Authorization': 'Bearer '+key, 'Content-Type':'application/json', 'model':MODEL},
-                json={'text':text, 'reference_id':VOICE, 'format':'mp3'}) as response:
+                headers={'Authorization': 'Bearer '+key, 'Content-Type':'application/json', 'model':fish_model()},
+                json={'text':text, 'reference_id':fish_voice(), 'format':'mp3'}) as response:
                 if response.status_code in (401,403):
                     raise HTTPException(503, 'Fish Audio rejected the API key or voice access.')
                 if response.status_code == 402:

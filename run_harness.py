@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 import httpx
+from gig_backend.config import load_project_env
 
 
 ROOT = Path(__file__).resolve().parent
@@ -49,6 +50,7 @@ def materialize_config():
 
 
 def main():
+    load_project_env()
     check_inventory()
     config = materialize_config()
     token = secrets.token_urlsafe(48)

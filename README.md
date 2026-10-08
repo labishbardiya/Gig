@@ -15,6 +15,27 @@ outside the repository and outside the public QR tunnel.
 
 ## Start
 
+### Optional cloud chat and Fish Audio
+
+GIG loads `C:\\Users\\lab\\Desktop\\gig\\.env` automatically. Add secrets only in
+that local file; it is Git-ignored. Start by copying `.env.example` if `.env` does
+not already exist, then fill in only the integrations you plan to use:
+
+```dotenv
+GIG_NVIDIA_API_KEY=your_nvidia_key
+FISH_AUDIO_API_KEY=your_fish_audio_key
+```
+
+`GIG_NVIDIA_API_KEY` enables the optional **Kimi** selection in the phone UI.
+`FISH_AUDIO_API_KEY` enables Fish Audio spoken replies. A missing or invalid key
+does not affect the local Ollama chat path; the UI will report the unavailable
+feature. Restart GIG after changing `.env`.
+
+For a short, supervised public demonstration only, set `GIG_DEMO_NO_PAIRING=1`
+when starting the phone server. This removes the six-digit pairing screen, which
+means anyone who knows the public tunnel URL can use the demo. Do not enable it
+for a persistent or sensitive deployment.
+
 Double-click `run.command`, or run:
 
 ```sh

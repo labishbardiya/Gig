@@ -51,6 +51,9 @@ async function refreshStatus() {
     const info = await request('/status');
     if(appScreen.classList.contains('hidden')){pairScreen.classList.add('hidden');appScreen.classList.remove('hidden');setState('ready','Ready when you are','Talk, type, or use your camera');}
     speechProvider=info.speech_provider || 'fish';
+    $('destinationHelp').textContent=info.public_demo
+      ? 'Public demo mode: anyone with this link can use GIG while the server is online.'
+      : 'Private link; requires a paired device and the server online. Nothing is published publicly.';
     $('modelSelect').querySelector('[value="kimi"]').disabled=!info.kimi;
     $('modelInfo').textContent = `local ${info.local_text?'configured':'not set'} · vision ${info.local_vision?'configured':'not set'} · Drive ${info.drive_configured?'configured':'not connected'}`;
     if(!workspaceReady){workspaceReady=true;await initializeWorkspace();}

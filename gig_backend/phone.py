@@ -15,6 +15,10 @@ from gig_backend.documents import Documents, SaveDocument, DriveApproval, camera
 from urllib.parse import quote
 from gig_backend.speech import api_key as speech_key, synthesize_with_metrics
 from gig_backend.workspace import Workspace, install_workspace
+from gig_backend.config import load_project_env
+
+
+load_project_env()
 
 
 class SpeechRequest(BaseModel):
@@ -41,15 +45,20 @@ SYSTEM = ("You are GIG, a concise voice assistant. Describe only what the image 
 def create_phone_app(data_dir=None):
     root = Path(data_dir or os.getenv("GIG_DATA_DIR", Path(__file__).resolve().parents[1] / "data"))
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    demo_no_pairing = os.getenv("GIG_DEMO_NO_PAIRING", "0") == "1"
     app = FastAPI(title="GIG Phone Gateway", docs_url=None, redoc_url=None, openapi_url=None)
     sessions = {}
+    demo_session = {"expires": float("inf"), "messages": []}
     lock = threading.Lock()
-    code = f"{secrets.randbelow(1_000_000):06d}"
-    code_path = root / "phone-pair-code"
-    fd = os.open(code_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as file:
-        file.write(code + "\n")
-    expires = time.monotonic() + 900
+    code = None
+    expires = float("inf")
+    if not demo_no_pairing:
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        code_path = root / "phone-pair-code"
+        fd = os.open(code_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as file:
+            file.write(code + "\n")
+        expires = time.monotonic() + 900
     attempts = {}
     static = Path(__file__).resolve().parents[1] / "phone_app"
     documents = Documents(root)
@@ -57,6 +66,8 @@ def create_phone_app(data_dir=None):
     speech_gate = threading.BoundedSemaphore(1)
 
     def session(request):
+        if demo_no_pairing:
+            return demo_session
         ident = request.cookies.get("gig_phone")
         with lock:
             item = sessions.get(ident)
@@ -98,6 +109,8 @@ def create_phone_app(data_dir=None):
 
     @app.post("/pair")
     def pair(body: PairRequest, request: Request, response: Response):
+        if demo_no_pairing:
+            return {"paired": True, "demo_no_pairing": True}
         remote = request.client.host if request.client else "unknown"
         now = time.monotonic()
         with lock:
@@ -119,7 +132,8 @@ def create_phone_app(data_dir=None):
     @app.get("/status")
     def status(request: Request):
         session(request)
-        return {"paired": True, "local_text": bool(os.getenv("GIG_MODEL")),
+        return {"paired": True, "pairing_required": not demo_no_pairing,
+                "public_demo": demo_no_pairing, "local_text": bool(os.getenv("GIG_MODEL")),
                 "local_vision": bool(os.getenv("GIG_VISION_MODEL")),
                 "kimi": bool(os.getenv("GIG_NVIDIA_API_KEY")),
                 "drive_configured": bool(os.getenv('GIG_GOOGLE_CREDENTIALS_FILE')),
