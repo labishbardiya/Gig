@@ -1,4 +1,4 @@
-"""Deliberately narrow phone gateway: no action or CALL-E routes exposed here."""
+"""Deliberately narrow phone gateway with paired, approval-gated actions."""
 import base64
 import binascii
 import os

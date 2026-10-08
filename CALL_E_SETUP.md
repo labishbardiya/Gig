@@ -1,19 +1,29 @@
-# Call-E integration boundary
+# CALL-E integration boundary
 
-GIG currently implements a phone-facing call brief and exact-approval ledger.
-It does **not** place a call from this gateway yet.
+GIG uses CALL-E's documented one-shot Calls API only after an immutable brief
+and literal `PLACE THIS CALL` approval. `POST /calls` is local preparation;
+`POST /calls/{id}/approve` can place one real call, and `GET /calls/{id}` polls
+only the accepted provider call until its structured result is terminal.
 
 Use `GET /calls/status` after pairing. If `configured` is false, set a Call-E
 key only in the PC process environment:
 
 ```powershell
-$env:CALL_E_API_KEY = [System.Net.NetworkCredential]::new('', (Read-Host 'Call-E API key' -AsSecureString)).Password
+$env:CALLE_API_KEY = [System.Net.NetworkCredential]::new('', (Read-Host 'CALL-E API key' -AsSecureString)).Password
 ```
 
 The key is never stored in GIG files, browser code, QR URLs, or Git.
 
-Before enabling outbound calls, add and test a provider adapter against Call-E's
-verified current API documentation. It must implement these guarantees:
+`CALL_E_API_KEY` remains accepted only for migration. The key is never stored in
+GIG files, browser code, QR URLs, or Git.
+
+The adapter uses `POST https://api.heycall-e.com/v2/calls` with a stable
+`Idempotency-Key`, then `GET /v2/calls/{id}` for explicit polling. Its result
+schema is closed and flat; the provider call resource ID, not telephone billing
+ID, is retained for polling. A `202 Accepted` means durable acceptance, not that
+the recipient connected or that the goal succeeded.
+
+Outbound use still requires these guarantees:
 
 1. A user sees the recipient's explicit E.164 number, purpose, supplied context,
    boundaries, AI disclosure, and cost warning.
@@ -23,5 +33,7 @@ verified current API documentation. It must implement these guarantees:
 5. Provider transcripts/results are untrusted data and cannot trigger further
    actions without user approval.
 
-Until the provider contract is validated, GIG returns an honest `503` after
-approval and **does not contact anyone**.
+If submission times out or the network fails, GIG marks the outcome `unknown`
+and never automatically retries or redials. Reconcile the provider before a
+human decides how to proceed. Tests use a mocked provider; no calls are made by
+the repository test suite.

@@ -33,8 +33,16 @@ class Workspace:
           CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY,chat TEXT REFERENCES chats(id) ON DELETE CASCADE,state TEXT,prompt TEXT,result TEXT,created REAL,updated REAL);
           CREATE TABLE IF NOT EXISTS run_events(id INTEGER PRIMARY KEY,run TEXT REFERENCES runs(id) ON DELETE CASCADE,phase TEXT,detail TEXT,created REAL);
           CREATE TABLE IF NOT EXISTS google_actions(id TEXT PRIMARY KEY,kind TEXT,payload TEXT,sha TEXT,state TEXT,provider_id TEXT,provider_url TEXT,created REAL);
-          CREATE TABLE IF NOT EXISTS call_actions(id TEXT PRIMARY KEY,payload TEXT,sha TEXT,state TEXT,created REAL);
+          CREATE TABLE IF NOT EXISTS call_actions(id TEXT PRIMARY KEY,payload TEXT,sha TEXT,state TEXT,provider_id TEXT,result TEXT,created REAL,updated REAL);
         ''')
+        # Existing prototype workspaces used a smaller call ledger. Migrate it
+        # in place without touching action contents or user-created data.
+        call_columns = {row[1] for row in self.db.execute('PRAGMA table_info(call_actions)')}
+        for name, definition in (('provider_id', "TEXT NOT NULL DEFAULT ''"),
+                                 ('result', "TEXT NOT NULL DEFAULT ''"),
+                                 ('updated', 'REAL NOT NULL DEFAULT 0')):
+            if name not in call_columns:
+                self.db.execute(f'ALTER TABLE call_actions ADD COLUMN {name} {definition}')
         with self.db:
             self.db.execute("UPDATE runs SET state='interrupted',result='Worker stopped. Not replayed automatically.' WHERE state='running' AND updated<?",(time.time()-45,))
 
