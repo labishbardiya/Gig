@@ -71,3 +71,63 @@ def test_local_browser_pair_cookie_works_without_https(tmp_path):
     code = (tmp_path / 'phone-pair-code').read_text().strip()
     assert client.post('/pair', json={'code': code}).status_code == 200
     assert client.get('/chats').status_code == 200
+
+
+def test_computer_check_requires_exact_review_and_is_read_only(tmp_path):
+    client = paired(tmp_path)
+    chat = client.post('/chats').json()['id']
+    proposal = client.post('/computer/actions', json={
+        'chat_id': chat, 'action': 'system_status', 'reason': 'Confirm demo PC is reachable',
+    })
+    assert proposal.status_code == 200
+    row = proposal.json()
+    assert row['state'] == 'awaiting_approval'
+    assert client.get('/computer/actions').json()[0]['id'] == row['id']
+    # It is an immutable, idempotent proposal: a second tap does not duplicate it.
+    again = client.post('/computer/actions', json={
+        'chat_id': chat, 'action': 'system_status', 'reason': 'Confirm demo PC is reachable',
+    }).json()
+    assert again['id'] == row['id'] and again['idempotent'] is True
+    assert client.post('/computer/actions/' + row['id'] + '/approve', json={
+        'confirmation': 'RUN READ-ONLY COMPUTER CHECK', 'payload_sha256': '0' * 64,
+    }).status_code == 409
+    response = client.post('/computer/actions/' + row['id'] + '/approve', json={
+        'confirmation': 'RUN READ-ONLY COMPUTER CHECK', 'payload_sha256': row['payload_sha256'],
+    })
+    assert response.status_code == 200
+    result = response.json()
+    assert result['state'] == 'verified'
+    assert result['result']['action_scope'] == 'read_only_server_identity'
+    events = client.get('/computer/actions/' + row['id'] + '/events').json()
+    assert [event['phase'] for event in events] == ['prepared', 'approved', 'verified']
+
+
+def test_computer_check_can_be_rejected_without_execution(tmp_path):
+    client = paired(tmp_path)
+    chat = client.post('/chats').json()['id']
+    row = client.post('/computer/actions', json={
+        'chat_id': chat, 'action': 'system_status', 'reason': 'Demonstrate user control',
+    }).json()
+    assert client.post('/computer/actions/' + row['id'] + '/reject').json()['rejected'] is True
+    action = client.get('/computer/actions').json()[0]
+    assert action['state'] == 'rejected' and action['result'] == ''
+
+
+def test_semantic_memory_prefers_local_embedding_when_enabled(tmp_path, monkeypatch):
+    monkeypatch.setenv('GIG_SEMANTIC_MEMORY', '1')
+    store = Workspace(tmp_path)
+    def fake_embed(text):
+        return ('qwen3-embedding:0.6b', [1, 0, 0] if 'project' in text else [0, 1, 0])
+    monkeypatch.setattr(Workspace, '_embed', lambda self, text: fake_embed(text))
+    chat = store.create()
+    client = paired(tmp_path)
+    first = client.post('/memories', json={'text':'My GIG project uses an RTX PC'}).json()
+    second = client.post('/memories', json={'text':'I prefer concise responses'}).json()
+    # Directly prove the retrieval/index invariants on the same persistent database.
+    store.execute('INSERT INTO memories VALUES(?,?,?)', ('a', 'My GIG project uses an RTX PC', time.time()))
+    store.execute('INSERT INTO memories VALUES(?,?,?)', ('b', 'I prefer concise responses', time.time()))
+    assert store.index_memory('a', 'My GIG project uses an RTX PC') is True
+    assert store.index_memory('b', 'I prefer concise responses') is True
+    assert store.memory_context('Tell me about my project').split('\n')[0] == 'My GIG project uses an RTX PC'
+    assert first['semantic_indexed'] is True and second['semantic_indexed'] is True
+    assert chat['id']

@@ -158,6 +158,21 @@ async function renderTasks(){activePanel='tasks';const panel=panelHeader('Agent 
       reject.onclick=async()=>{try{await request('/runs/'+run.id+'/reject',{method:'POST'});await renderTasks();}catch(err){notice(err.message);}};
       controls.append(approve,reject);row.append(controls);}
     list.append(row);}
+  const computerHeading=element('h3','computer-heading','Computer proof');
+  panel.append(computerHeading,element('p','panel-description','This is a deliberately read-only harness demonstration: propose → review → approve → verify. It reports this server’s identity only; it cannot open apps, read files, or control the desktop.'));
+  const computerButton=element('button','computer-prepare','Prepare read-only PC check');computerButton.type='button';computerButton.disabled=!selectedChat;
+  computerButton.onclick=async()=>{if(!selectedChat)return;computerButton.disabled=true;
+    try{await request('/computer/actions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:selectedChat,action:'system_status',reason:'Verify the GIG compute server for this approved demonstration.'})});await renderTasks();notice('Read-only PC check prepared. Review it before approval.');}
+    catch(err){notice(err.message);computerButton.disabled=false;}};panel.append(computerButton);
+  const actions=await request('/computer/actions');const computerList=element('div','computer-list');panel.append(computerList);
+  if(!actions.length)computerList.append(element('p','panel-empty','No computer checks prepared.'));
+  for(const action of actions){const row=element('article','computer-row');row.append(element('strong','',action.action.replace('_',' ')),element('small','run-state','State: '+action.state),element('p','computer-reason',action.reason));
+    if(action.result){try{const proof=JSON.parse(action.result);row.append(element('p','computer-result',`${proof.hostname} · ${proof.operating_system} · ${proof.machine} · verified`));}catch{row.append(element('p','computer-result',action.result));}}
+    const trace=element('button','trace-button','Show audit trail');trace.type='button';trace.onclick=async()=>{const prior=row.querySelector('.run-timeline');if(prior){prior.remove();trace.textContent='Show audit trail';return;}try{const events=await request('/computer/actions/'+action.id+'/events');const timeline=element('ol','run-timeline');for(const event of events)timeline.append(element('li','',`${event.phase} · ${event.detail}`));row.append(timeline);trace.textContent='Hide audit trail';}catch(err){notice(err.message);}};row.append(trace);
+    if(action.state==='awaiting_approval'){const controls=element('div','run-controls');const approve=element('button','','Approve read-only check'),reject=element('button','','Reject');
+      approve.onclick=async()=>{if(!confirm('Run the read-only server identity check? It cannot control the PC.'))return;try{await request('/computer/actions/'+action.id+'/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmation:'RUN READ-ONLY COMPUTER CHECK',payload_sha256:action.payload_sha256})});await renderTasks();}catch(err){notice(err.message);}};
+      reject.onclick=async()=>{try{await request('/computer/actions/'+action.id+'/reject',{method:'POST'});await renderTasks();}catch(err){notice(err.message);}};controls.append(approve,reject);row.append(controls);}
+    computerList.append(row);}
 }
 function renderConnections(){activePanel='connections';const panel=panelHeader('Connections','Availability is reported by this server. An account is not connected just because a button exists.');
   const status=harnessStatus?.integrations||{};

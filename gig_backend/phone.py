@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from gig_backend.documents import Documents, SaveDocument, DriveApproval, camera_image
 from urllib.parse import quote
-from gig_backend.speech import api_key as speech_key, synthesize
+from gig_backend.speech import api_key as speech_key, synthesize_with_metrics
 from gig_backend.workspace import Workspace, install_workspace
 
 
@@ -140,9 +140,13 @@ def create_phone_app(data_dir=None):
         if not speech_gate.acquire(blocking=False):
             raise HTTPException(429, 'Speech is already being generated. Please wait.')
         try:
-            audio = synthesize(body.text, root)
-            return Response(audio, media_type='audio/wav' if audio[:4] == b'RIFF' else 'audio/mpeg',
-                            headers={'Cache-Control':'no-store', 'X-Content-Type-Options':'nosniff'})
+            result = synthesize_with_metrics(body.text, root)
+            return Response(result.audio, media_type='audio/wav' if result.audio[:4] == b'RIFF' else 'audio/mpeg',
+                            headers={'Cache-Control':'no-store', 'X-Content-Type-Options':'nosniff',
+                                     # Backend TTS segment only. See speech.py for its scope.
+                                     'X-GIG-TTS-Ms': str(result.request_ms),
+                                     'X-GIG-TTS-Provider': result.provider,
+                                     'Server-Timing': f'gig-tts;dur={result.request_ms}'})
         finally:
             speech_gate.release()
 

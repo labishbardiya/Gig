@@ -141,8 +141,13 @@ class Documents:
             raise HTTPException(503, 'Connect Google Drive on the server first. Your local file is safe; nothing was uploaded.')
         try:
             credentials = Credentials.from_authorized_user_file(credentials_file)
+            if not credentials.has_scopes(['https://www.googleapis.com/auth/drive.file']):
+                raise ValueError('Missing Drive file scope')
             if not credentials.valid:
                 credentials.refresh(GoogleRequest())
+                # Persist a refreshed access token only in the existing owner-only credential file.
+                with open(credentials_file, 'w', encoding='utf-8') as output:
+                    output.write(credentials.to_json())
         except Exception:
             raise HTTPException(503, 'Google authorization failed. Reconnect Drive on the server.')
         with self.connect() as db:

@@ -37,6 +37,17 @@ One active session is permitted, with a fifteen-minute limit. Client must stop m
 tracks on hang-up and page exit. Browser must request echo cancellation and create an
 audio transceiver before producing the offer. Camera capture is not requested.
 
+## Timing evidence
+
+The ordinary `POST /speech` endpoint returns `X-GIG-TTS-Ms` and
+`Server-Timing: gig-tts;dur=...`. They measure the backend TTS request from start
+until the full audio response is received. They do **not** include microphone capture,
+speech recognition, LLM reasoning, phone/network transit, or speaker playback; report
+them only as a TTS component measurement.
+
+For local TTS, run `uv run python benchmark_voice.py --runs 30`. Preserve its
+`results.csv` and report median plus p95, with the TTS model and device named.
+
 ## Network requirement
 
 HTTPS is required on the phone for microphone permission. A private VPN or a properly

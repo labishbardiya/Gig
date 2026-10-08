@@ -9,6 +9,10 @@ that separate phone gateway. OpenClaw integration remains pending.
 
 Research tooling: see [RESEARCH_CLIENT.md](RESEARCH_CLIENT.md) for the verified read-only Papers catalog client, source limitations and SOTA comparison workflow.
 
+Phone-GIG Drive authorization and local semantic-memory setup: see
+[DRIVE_AND_MEMORY_SETUP.md](DRIVE_AND_MEMORY_SETUP.md). These credentials remain
+outside the repository and outside the public QR tunnel.
+
 ## Start
 
 Double-click `run.command`, or run:

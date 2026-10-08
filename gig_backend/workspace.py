@@ -6,6 +6,7 @@ import threading
 import time
 import uuid
 import re
+import math
 from urllib.parse import urlsplit
 
 import httpx
@@ -28,8 +29,28 @@ class Workspace:
           CREATE TABLE IF NOT EXISTS chats(id TEXT PRIMARY KEY,title TEXT,created REAL,updated REAL);
           CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY,chat TEXT REFERENCES chats(id) ON DELETE CASCADE,role TEXT,content TEXT,created REAL);
           CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY,text TEXT,created REAL);
+          CREATE TABLE IF NOT EXISTS memory_embeddings(memory TEXT PRIMARY KEY REFERENCES memories(id) ON DELETE CASCADE,model TEXT,vector TEXT,created REAL);
           CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY,chat TEXT REFERENCES chats(id) ON DELETE CASCADE,state TEXT,prompt TEXT,result TEXT,created REAL,updated REAL);
           CREATE TABLE IF NOT EXISTS run_events(id INTEGER PRIMARY KEY,run TEXT REFERENCES runs(id) ON DELETE CASCADE,phase TEXT,detail TEXT,created REAL);
+          CREATE TABLE IF NOT EXISTS computer_actions(
+            id TEXT PRIMARY KEY,
+            chat_id TEXT REFERENCES chats(id) ON DELETE CASCADE,
+            action TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            payload_sha256 TEXT NOT NULL,
+            state TEXT NOT NULL,
+            result TEXT NOT NULL,
+            created REAL NOT NULL,
+            updated REAL NOT NULL
+          );
+          CREATE TABLE IF NOT EXISTS computer_action_events(
+            id INTEGER PRIMARY KEY,
+            action_id TEXT REFERENCES computer_actions(id) ON DELETE CASCADE,
+            phase TEXT NOT NULL,
+            detail TEXT NOT NULL,
+            created REAL NOT NULL
+          );
         ''')
         with self.db:
             self.db.execute("UPDATE runs SET state='interrupted',result='Worker stopped. Not replayed automatically.' WHERE state='running' AND updated<?",(time.time()-45,))
@@ -81,11 +102,67 @@ class Workspace:
                 [(ident,'user',question,now),(ident,'assistant',answer,now)])
             self.db.execute("UPDATE chats SET updated=?,title=CASE WHEN title='New chat' THEN ? ELSE title END WHERE id=?",(now,question[:70],ident))
 
+    @staticmethod
+    def _unit_vector(value):
+        """Accept only small, finite embedding vectors from the local Ollama endpoint."""
+        if not isinstance(value, list) or not 8 <= len(value) <= 4096:
+            raise ValueError('Invalid embedding vector')
+        vector = [float(item) for item in value]
+        if not all(math.isfinite(item) for item in vector):
+            raise ValueError('Invalid embedding vector')
+        norm = math.sqrt(sum(item * item for item in vector))
+        if norm == 0:
+            raise ValueError('Invalid embedding vector')
+        return [item / norm for item in vector]
+
+    def _embed(self, text):
+        """Best-effort local embeddings. Memory never leaves the PC and lexical retrieval remains a safe fallback."""
+        if os.getenv('GIG_SEMANTIC_MEMORY') != '1':
+            return None
+        model = os.getenv('GIG_EMBED_MODEL', 'qwen3-embedding:0.6b')
+        url = os.getenv('GIG_MODEL_URL', 'http://127.0.0.1:11434').rstrip('/')
+        try:
+            with httpx.Client(timeout=12, trust_env=False) as client:
+                response = client.post(url + '/api/embed', json={'model': model, 'input': text})
+                response.raise_for_status()
+                embeddings = response.json().get('embeddings')
+                vector = self._unit_vector(embeddings[0] if isinstance(embeddings, list) and embeddings else None)
+                return model, vector
+        except (httpx.HTTPError, ValueError, TypeError, KeyError, IndexError):
+            return None
+
+    def index_memory(self, ident, text):
+        result = self._embed(text)
+        if not result:
+            return False
+        model, vector = result
+        self.execute('INSERT OR REPLACE INTO memory_embeddings(memory,model,vector,created) VALUES(?,?,?,?)',
+                     (ident, model, json.dumps(vector, separators=(',', ':')), time.time()))
+        return True
+
+    def _semantic_matches(self, query):
+        result = self._embed(query)
+        if not result:
+            return []
+        model, query_vector = result
+        rows = self.rows('SELECT m.text,m.created,e.vector FROM memories m JOIN memory_embeddings e ON e.memory=m.id WHERE e.model=?', (model,))
+        scored = []
+        for row in rows:
+            try:
+                vector = self._unit_vector(json.loads(row['vector']))
+                if len(vector) != len(query_vector):
+                    continue
+                scored.append((sum(a * b for a, b in zip(query_vector, vector)), row))
+            except (ValueError, TypeError, json.JSONDecodeError):
+                continue
+        return [row for score, row in sorted(scored, key=lambda item: item[0], reverse=True) if score >= 0.35][:8]
+
     def memory_context(self, query=''):
         rows=self.rows('SELECT text,created FROM memories ORDER BY created DESC LIMIT 200')
         terms=set(re.findall(r'[\w]{3,}',query.lower()))
         relevant=[r for r in rows if terms.intersection(re.findall(r'[\w]{3,}',r['text'].lower()))]
-        chosen=(relevant[:8]+[r for r in rows[:2] if r not in relevant[:8]])[:10]
+        semantic=self._semantic_matches(query) if query else []
+        chosen=(semantic + relevant + [r for r in rows[:2] if r not in semantic and r not in relevant])[:10]
         return '\n'.join(r['text'] for r in chosen)[:6000]
 
 
@@ -126,6 +203,9 @@ class OpenClaw:
 
 
 def install_workspace(app, authenticate, store):
+    # Import here to keep the persistent-workspace module independent of the
+    # deliberately narrow computer-action demo implementation.
+    from gig_backend.computer_actions import install_computer_actions
     @app.get('/chats')
     def chats(request: Request):
         authenticate(request)
@@ -166,7 +246,7 @@ def install_workspace(app, authenticate, store):
         if not body.text.strip():raise HTTPException(422,'Memory cannot be blank')
         if len(store.rows('SELECT id FROM memories LIMIT 201'))>=200:raise HTTPException(409,'Memory limit reached; remove an old entry')
         ident=str(uuid.uuid4());store.execute('INSERT INTO memories VALUES(?,?,?)',(ident,body.text.strip(),time.time()))
-        return {'id':ident}
+        return {'id':ident, 'semantic_indexed':store.index_memory(ident, body.text.strip())}
 
     @app.delete('/memories/{ident}')
     def forget(ident: str, request: Request):
@@ -178,7 +258,8 @@ def install_workspace(app, authenticate, store):
         if not body.text.strip():raise HTTPException(422,'Memory cannot be blank')
         changed=store.execute('UPDATE memories SET text=? WHERE id=?',(body.text.strip(),ident))
         if not changed:raise HTTPException(404,'Memory not found')
-        return {'updated':True}
+        store.execute('DELETE FROM memory_embeddings WHERE memory=?',(ident,))
+        return {'updated':True, 'semantic_indexed':store.index_memory(ident, body.text.strip())}
 
     @app.get('/harness/status')
     def status(request: Request):
@@ -191,8 +272,10 @@ def install_workspace(app, authenticate, store):
                 'execution_enabled':enabled,'reachable':reachable,'ready':configured and enabled and reachable,
                 'policy':'Read-only OpenClaw agent config supplied. No auto-retries. Tool-level approvals are not implemented.',
                 'integrations':{'drive':bool(os.getenv('GIG_GOOGLE_CREDENTIALS_FILE')),
-                                'email':False,'calendar':False,'computer_control':False},
-                'memory':'Explicit notes; lexical relevance plus two recent notes, up to 6000 characters. Not semantic retrieval.',
+                                'email':False,'calendar':False,'computer_control':False,
+                                'computer_action_demo':True},
+                'memory':('Explicit notes; local semantic retrieval plus lexical fallback.' if os.getenv('GIG_SEMANTIC_MEMORY') == '1'
+                           else 'Explicit notes; lexical relevance plus two recent notes. Semantic retrieval is disabled.'),
                 'retention':'Chats and memories persist until deleted. All paired devices share one owner workspace.'}
 
     @app.get('/runs')
@@ -258,3 +341,5 @@ def install_workspace(app, authenticate, store):
         changed=bool(store.execute("UPDATE runs SET state='rejected',updated=? WHERE id=? AND state='awaiting_approval'",(time.time(),ident)))
         if changed:store.log(ident,'rejected','User rejected this task')
         return {'rejected':changed}
+
+    install_computer_actions(app, authenticate, store)

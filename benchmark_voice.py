@@ -38,8 +38,13 @@ def main():
     with (output/'results.csv').open('w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=list(rows[0]))
         writer.writeheader(); writer.writerows(rows)
-    print('Median complete-segment latency:',round(statistics.median(r['request_seconds'] for r in rows),3))
-    print('Not first-packet or end-to-end conversation latency. Samples/results:',output)
+    values = sorted(r['request_seconds'] for r in rows)
+    # Nearest-rank p95 is stable and easy to explain in a viva.
+    p95 = values[max(0, int((len(values) * .95) + .999999) - 1)]
+    print('Median complete-segment latency:', round(statistics.median(values), 3), 'seconds')
+    print('p95 complete-segment latency:', round(p95, 3), 'seconds')
+    print('Scope: request sent to local TTS until complete WAV received. It excludes microphone, STT, LLM, browser network and playback.')
+    print('Samples/results:', output)
 
 if __name__ == '__main__':
     main()

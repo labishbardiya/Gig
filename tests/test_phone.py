@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 from gig_backend.phone import create_phone_app
+from gig_backend.speech import SynthesisResult
 
 
 def test_pairing_and_no_model(tmp_path, monkeypatch):
@@ -29,3 +30,15 @@ def test_rejects_invalid_frame(tmp_path, monkeypatch):
     client.post('/pair', json={'code': code})
     result = client.post('/ask', json={'text': 'Look', 'model': 'auto', 'image': 'data:image/jpeg;base64,not-base64'})
     assert result.status_code == 400
+
+
+def test_speech_reports_backend_timing_only(tmp_path, monkeypatch):
+    monkeypatch.setattr('gig_backend.phone.synthesize_with_metrics',
+                        lambda text, root: SynthesisResult(b'RIFF0000WAVEdata', 12.5, 'test-tts'))
+    client = TestClient(create_phone_app(tmp_path), base_url='https://testserver')
+    client.post('/pair', json={'code': (tmp_path / 'phone-pair-code').read_text().strip()})
+    result = client.post('/speech', json={'text': 'Hello'})
+    assert result.status_code == 200
+    assert result.headers['x-gig-tts-ms'] == '12.5'
+    assert result.headers['x-gig-tts-provider'] == 'test-tts'
+    assert result.headers['server-timing'] == 'gig-tts;dur=12.5'
