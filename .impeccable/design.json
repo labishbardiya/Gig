@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-08T00:00:00Z",
+  "title": "Design System: GIG",
+  "extensions": {
+    "shadows": [],
+    "motion": [{"name":"button-background","value":"background .15s","purpose":"Button state transition; disabled under reduced motion."}],
+    "breakpoints": [{"name":"phone","value":"600px"},{"name":"desktop","value":"900px"}]
+  },
+  "components": [
+    {"name":"Scan action","kind":"button","description":"Explicit document or camera action.","html":"<button class=\"ds-scan\">Scan a page</button>","css":".ds-scan{font:13px ui-sans-serif,system-ui,sans-serif;min-height:44px;padding:10px 17px;border:1px solid var(--line,#dededb);border-radius:24px;background:#fffffff2;color:var(--text,#242624);cursor:pointer;transition:background .15s}.ds-scan:hover{filter:brightness(.95)}.ds-scan:focus-visible{outline:2px solid var(--cyan,#256455);outline-offset:3px}"},
+    {"name":"Preference button","kind":"button","description":"Motion and spoken-reply settings.","html":"<button class=\"ds-pref\" aria-pressed=\"true\">Spoken replies on</button>","css":".ds-pref{font:12px ui-sans-serif,system-ui,sans-serif;background:#ffffffc9;color:var(--muted,#626660);border:1px solid var(--line,#dededb);border-radius:20px;min-height:36px;padding:6px 12px;cursor:pointer}.ds-pref:hover{filter:brightness(.95)}.ds-pref:focus-visible{outline:2px solid var(--cyan,#256455);outline-offset:3px}"},
+    {"name":"Scan field","kind":"input","description":"Editable reviewed document data.","html":"<label class=\"ds-label\">File name<input class=\"ds-field\" value=\"My scan\"></label>","css":".ds-label{font:13px ui-sans-serif,system-ui,sans-serif;color:var(--muted,#626660)}.ds-field{display:block;margin:6px 0 12px;padding:10px;color:var(--text,#242624);background:var(--surface,#f6f6f5);border:1px solid var(--line,#dededb);border-radius:8px;font:16px ui-sans-serif,system-ui,sans-serif;min-height:44px}.ds-field:focus-visible{outline:2px solid var(--cyan,#256455);outline-offset:3px}"},
+    {"name":"Scan panel","kind":"card","refersTo":"scan-panel","description":"White review surface before private saving.","html":"<section class=\"ds-panel\"><h2>Review your scan</h2><p>Text extraction needs review; it may make mistakes.</p></section>","css":".ds-panel{font-family:ui-sans-serif,system-ui,sans-serif;color:var(--text,#242624);background:#fff;padding:20px;border:1px solid var(--line,#dededb);border-radius:16px}.ds-panel h2{font-size:19px;margin:0 0 12px}.ds-panel p{font-size:12px;color:var(--muted,#626660);line-height:1.5}"},
+    {"name":"User message","kind":"custom","description":"Right-aligned conversation bubble.","html":"<div class=\"ds-message\">What can you see?</div>","css":".ds-message{font:15px/1.65 ui-sans-serif,system-ui,sans-serif;color:var(--text,#242624);background:#eeefec;border-radius:20px;margin:10px 0 10px auto;padding:12px 18px;width:fit-content;max-width:85%;overflow-wrap:anywhere}"}
+  ],
+  "narrative": {
+    "northStar":"White ChatGPT-like conversation",
+    "overview":"The user's pinned direction is a white, phone-first conversation over their supplied ocean loop. System typography and charcoal controls keep the interface familiar. The ocean is decorative; actual status is expressed through text and controls.",
+    "keyCharacteristics":["White reading surfaces and restrained charcoal controls.","Optional local ocean motion and no external font requests.","Explicit capture actions and review-before-save."],
+    "rules":[],
+    "dos":["Do preserve the supplied ocean asset and white conversation surfaces.","Do preserve pairing, scan review, private saving and privacy stop behavior."],
+    "donts":["Don't add fictional history, agent progress or connection claims.","Don't substitute stock media or introduce third-party fonts."]
+  }
+}

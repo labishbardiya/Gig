@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en"><head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff"><link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/white.css"><title>GIG · your everyday assistant</title>
+</head><body>
+  <!-- Direction: user-pinned white conversational workspace. Phone-first operation.
+       Ocean motion supports the empty state, not reading. Controls stay opaque.
+       Preserve real workflows; no fictional integrations or conversation history.
+       System typography, restrained ink, generous readable measure.
+       Motion is optional; capture always explicit. -->
+  <video id="ambientVideo" class="ambient-video" autoplay muted loop playsinline poster="/ambient.jpg" aria-hidden="true"><source src="/ambient.mp4" type="video/mp4"></video>
+  <div class="ambient-wash" aria-hidden="true"></div>
+  <main class="shell">
+    <header><div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>gig</span><span class="brand-caption">Your everyday assistant</span></div><div class="header-actions"><button id="motionButton" type="button" aria-pressed="true">Pause background</button><div id="stateTag" class="state-tag">offline</div></div></header>
+    <section id="pairScreen" class="pair-screen" aria-labelledby="pairTitle">
+      <div class="pair-symbol" aria-hidden="true"><span></span><span></span><span></span></div>
+      <h1 id="pairTitle">Connect your phone</h1>
+      <p>This phone is your glasses prototype. Enter the six-digit code from your GIG server to pair it.</p>
+      <form id="pairForm"><label for="pairCode">Pairing code</label><div class="pair-row"><input id="pairCode" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" size="6" autocomplete="one-time-code" required aria-describedby="pairError"><button type="submit">Connect</button></div><span id="pairError" role="alert"></span></form>
+      <small>Camera and microphone stay off until you turn them on.</small>
+    </section>
+    <section id="appScreen" class="app-screen hidden" aria-label="GIG assistant">
+      <div class="workspace-layout">
+        <aside id="workspaceSidebar" class="workspace-sidebar" aria-label="Workspace navigation">
+          <div class="sidebar-heading"><span>Workspace</span><button id="closeSidebar" type="button" aria-label="Close workspace">Close</button></div>
+          <button id="newChatButton" class="new-chat" type="button">New chat</button>
+          <input id="chatSearch" class="chat-search" type="search" placeholder="Search chats" aria-label="Search saved chats">
+          <div id="chatList" class="chat-list" aria-label="Saved chats"></div>
+          <nav class="workspace-nav" aria-label="Workspace tools"><button id="memoryButton" type="button">Memory</button><button id="tasksButton" type="button">Agent tasks</button><button id="connectionsButton" type="button">Connections</button></nav>
+        </aside>
+        <div class="workspace-main">
+      <div class="conversation-heading"><button id="openSidebar" type="button" aria-label="Open workspace"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button><span id="chatTitle">New chat</span><button id="renameChatButton" type="button">Rename</button><button id="exportChatButton" type="button">Export</button><button id="deleteChatButton" type="button">Delete</button></div>
+      <div class="topline"><label for="modelSelect">Model</label><select id="modelSelect"><option value="auto">Auto route</option><option value="local">Local model</option><option value="kimi">Kimi K3 · cloud</option></select><button id="privacyButton" class="privacy-button" type="button" aria-pressed="false">Privacy off</button></div>
+      <section id="workspacePanel" class="workspace-panel hidden" aria-live="polite"></section>
+      <div id="cameraPanel" class="camera-panel hidden"><video id="camera" autoplay playsinline muted aria-label="Camera preview"></video><div class="camera-label">camera preview · frame sent only with a visual question</div></div>
+      <div class="scan-actions"><button id="identifyButton" type="button">Identify & tell</button><button id="scanButton" type="button">Scan a page</button><button id="libraryButton" type="button">Saved files</button></div>
+      <section id="scanReview" class="scan-review hidden" aria-labelledby="scanHeading">
+        <h2 id="scanHeading">Review your scan</h2>
+        <img id="scanPreview" alt="Captured page to save">
+        <p id="scanHelp">PDF and JPEG preserve the captured image. Text extraction needs review; it may make mistakes.</p>
+        <label for="documentTitle">File name</label><input id="documentTitle" maxlength="100" value="My scan">
+        <label for="documentText">Extracted text · editable</label><textarea id="documentText" rows="5" maxlength="50000" placeholder="Extract text, or enter it here"></textarea>
+        <button id="extractButton" type="button">Extract text from this page</button>
+        <div class="save-options"><label for="documentFormat">Format<select id="documentFormat"><option value="pdf">PDF · page image</option><option value="jpg">JPEG · photo</option><option value="txt">Text · editable</option><option value="md">Markdown · editable</option></select></label><label for="documentDestination">Save to<select id="documentDestination"><option value="local">Private GIG files</option><option value="drive">Google Drive</option></select></label></div>
+        <p id="destinationHelp">Private link; requires a paired device and the server online. Nothing is published publicly.</p>
+        <div id="scanNotice" class="scan-feedback hidden" role="status"></div>
+        <div class="scan-actions"><button id="saveDocumentButton" type="button">Save private file</button><button id="discardScanButton" type="button">Discard scan</button></div>
+      </section>
+      <section id="savedPanel" class="scan-review hidden" aria-labelledby="savedHeading"><h2 id="savedHeading">Your saved files</h2><div id="savedFiles" aria-live="polite"></div></section>
+      <div class="stage"><div id="orb" class="orb" aria-hidden="true"><span class="orb-core"></span><span class="ring ring-a"></span><span class="ring ring-b"></span></div><h1>What’s on your mind?</h1><div id="statusText" class="status-text" aria-live="polite">Ready when you are</div><p id="hintText" class="hint-text">Talk, type, or bring your camera into the conversation.</p></div>
+      <div class="conversation" id="conversation" role="log" aria-label="Conversation"><div class="empty">Your conversation appears here. Nothing is recorded in the background.</div></div>
+      <div id="notice" class="notice hidden" role="alert"></div>
+      <div class="controls"><button id="cameraButton" class="icon-button" type="button" aria-label="Turn camera on" title="Camera"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="3"/><circle cx="12" cy="12" r="3.2"/></svg></button><button id="micButton" class="mic-button" type="button" aria-label="Start listening"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="2.5" width="6" height="12" rx="3"/><path d="M5.5 10.5a6.5 6.5 0 0 0 13 0M12 17v4m-4 0h8"/></svg></button><button id="stopButton" class="icon-button" type="button" aria-label="Stop speech" title="Stop speech"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button></div>
+      <form id="textForm" class="text-form"><input id="textInput" type="text" maxlength="4000" placeholder="Ask GIG anything…" aria-label="Type a question"><button type="submit" aria-label="Send question"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20V4m-6 6 6-6 6 6"/></svg></button></form>
+      <div class="preferences"><button id="audioReplies" type="button" aria-pressed="true">Spoken replies on</button><span>Camera & microphone are off until you enable them.</span></div>
+      <div class="foot"><button id="forgetButton" type="button">Forget this session</button><span id="modelInfo">checking configuration…</span></div>
+      <p class="privacy-note">Voice recognition uses your browser's speech service and may process audio online. Camera frames use the selected model; Auto stays local. Saved files persist until deleted.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script src="/app.js" defer></script>
+</body></html>

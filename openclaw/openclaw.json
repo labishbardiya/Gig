@@ -1,0 +1,46 @@
+{
+  "gateway": {
+    "mode": "local",
+    "port": 18789,
+    "bind": "loopback",
+    "auth": { "mode": "token" },
+    "controlUi": { "enabled": false },
+    "http": { "endpoints": { "chatCompletions": { "enabled": true } } }
+  },
+  "agents": {
+    "defaults": {
+      "workspace": "/Users/labishbardiya/Desktop/gig/openclaw/workspace",
+      "model": { "primary": "ollama/qwen3:4b" },
+      "thinkingDefault": "off",
+      "skipBootstrap": true,
+      "contextInjection": "never"
+    },
+    "entries": { "gig": { "identity": { "name": "GIG" } } }
+  },
+  "models": {
+    "providers": {
+      "ollama": {
+        "baseUrl": "http://127.0.0.1:11434",
+        "apiKey": "ollama-local",
+        "api": "ollama",
+        "models": [
+          {
+            "id": "qwen3:4b",
+            "name": "qwen3:4b",
+            "reasoning": true,
+            "input": ["text"],
+            "contextWindow": 16384,
+            "maxTokens": 2048,
+            "params": { "num_ctx": 16384, "thinking": false, "keep_alive": "15m" }
+          }
+        ]
+      }
+    }
+  },
+  "skills": { "allowBundled": [] },
+  "tools": {
+    "profile": "minimal",
+    "allow": ["session_status"],
+    "deny": ["exec", "process", "code_execution", "terminal", "read", "write", "edit", "apply_patch", "browser", "computer", "message", "gateway", "automations", "cron", "sessions_spawn", "subagents", "plugins", "openclaw"]
+  }
+}

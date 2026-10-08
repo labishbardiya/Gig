@@ -1,0 +1,26 @@
+[project]
+name = "gig-backend"
+version = "0.1.0"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.30,<1",
+    "httpx>=0.27,<1",
+    "langgraph>=1,<2",
+    "pillow>=11,<13",
+    "google-auth>=2,<3",
+    "requests>=2,<3",
+    "google-auth-oauthlib>=1,<2",
+]
+
+[project.optional-dependencies]
+voice = [
+    "pipecat-ai[fish,webrtc,whisper]==1.12.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
