@@ -17,7 +17,7 @@ def main():
     if not (args.write_drive_probe or args.check_gmail or args.check_calendar):
         parser.error('Choose at least one explicit check')
     if not args.authorized_user_json.is_file():
-        parser.error('Authorized-user JSON was not found')
+        parser.error('Google authorization has not saved a token at this path. Run connect_drive.py with --workspace and finish browser consent without pressing Ctrl+C. Google is optional for chat; no verification request was sent.')
     output = {'drive_probe': None, 'gmail': None, 'calendar': None}
     try:
         if args.write_drive_probe:

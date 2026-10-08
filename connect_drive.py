@@ -17,7 +17,11 @@ if __name__ == '__main__':
         scopes += ['https://www.googleapis.com/auth/gmail.compose',
                    'https://www.googleapis.com/auth/calendar.events']
     flow = InstalledAppFlow.from_client_secrets_file(str(args.client_json), scopes=scopes)
-    credentials = flow.run_local_server(port=0)
+    print('Keep this terminal running while you sign in and approve access in the browser.')
+    try:
+        credentials = flow.run_local_server(port=0)
+    except KeyboardInterrupt:
+        raise SystemExit('Authorization cancelled. No token was saved. Run this command again and finish the browser consent step. GIG chat works without Google.') from None
     args.output.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, 'w') as output:

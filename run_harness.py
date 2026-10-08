@@ -6,6 +6,7 @@ process memory and is passed only to the two local child processes.
 import json
 import os
 import secrets
+import socket
 import shutil
 import subprocess
 import sys
@@ -51,6 +52,11 @@ def materialize_config():
 
 def main():
     load_project_env()
+    port = int(os.environ.get('GIG_PHONE_PORT', '8767'))
+    for occupied_port in (port, 18789):
+        with socket.socket() as probe:
+            if probe.connect_ex(('127.0.0.1', occupied_port)) == 0:
+                raise RuntimeError(f'Port {occupied_port} is already in use. Run python gig.py doctor. Stop the existing GIG terminal with Ctrl+C before restarting; do not launch another gateway.')
     check_inventory()
     config = materialize_config()
     token = secrets.token_urlsafe(48)
@@ -88,7 +94,10 @@ def main():
                                   '--host', '127.0.0.1', '--port', port, '--no-access-log'],
                                  cwd=ROOT, env=env)
         print(f'GIG phone app: http://127.0.0.1:{port}/', flush=True)
-        print('OpenClaw: restricted operator gateway on loopback. Pairing code is in data/openclaw-state/phone/phone-pair-code.', flush=True)
+        if env.get('GIG_PUBLIC_DEMO') == '1':
+            print('Public demo: visitors enter without a pairing code; private account tools remain operator-only.', flush=True)
+        else:
+            print('Operator pairing code: data/openclaw-state/phone/phone-pair-code.', flush=True)
         try:
             while gateway.poll() is None and phone.poll() is None:
                 time.sleep(1)
