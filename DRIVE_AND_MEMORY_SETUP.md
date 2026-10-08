@@ -34,6 +34,20 @@ Use `GET /google/status` after pairing to check the Gmail and Calendar provider
 connections. A successful health check proves account connectivity only; it does
 not verify a specific recipient, email, calendar, or event invitation.
 
+### Explicit manual verification on the PC
+
+After OAuth succeeds, run this once with a non-sensitive account:
+
+```powershell
+uv run python verify_google_workspace.py C:\Users\lab\gig-private\google-authorized-user.json --write-drive-probe --check-gmail --check-calendar
+```
+
+It creates one uniquely named, tiny **private** Drive text file and prints its
+file ID, name, and Drive link. It does not call a Drive permissions endpoint, so
+the file is not shared publicly. The Gmail and Calendar checks only read provider
+metadata: they do not create/send an email or create an event. Delete the probe
+manually from Drive after inspection if desired.
+
 ## 2. Semantic memory: local only
 
 ```powershell
