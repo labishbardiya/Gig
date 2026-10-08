@@ -13,6 +13,7 @@ let speechProvider = 'fish';
 let selectedChat = null, chatLoadGeneration = 0, workspaceReady = false, harnessStatus = null;
 let activePanel = null, workspaceRefresh = null, publicDemo = false;
 let runtimeStatus = null, wakeEnabled = false;
+let localRecorder = null, recordingTimer = null;
 const ambient = $('ambientVideo');
 let motionEnabled = !matchMedia('(prefers-reduced-motion: reduce)').matches;
 function updateMotion(){
@@ -85,6 +86,8 @@ async function refreshStatus() {
   } catch { pairScreen.classList.remove('hidden'); appScreen.classList.add('hidden'); $('stateTag').textContent='unpaired'; }
 }
 function stopAudio() {
+  clearTimeout(recordingTimer);
+  if(localRecorder){localRecorder.onstop=null;if(localRecorder.state!=='inactive')localRecorder.stop();localRecorder=null;}
   speechEpoch++;
   if(speechAbort){speechAbort.abort();speechAbort=null;}
   if(speechPlayer){speechPlayer.pause();speechPlayer.removeAttribute('src');speechPlayer=null;}
@@ -296,6 +299,45 @@ async function ask(text) {
   finally { busy=false; }
 }
 async function startListening() {
+  return startLocalRecording();
+}
+
+async function startLocalRecording(wake=false) {
+  if(!wake)setWakeEnabled(false);stopAudio();
+  if(!window.MediaRecorder){notice('This browser cannot record audio. Use keyboard voice typing.');return;}
+  const epoch=generation;
+  try {micStream=await navigator.mediaDevices.getUserMedia({audio:true});}
+  catch {notice('Allow microphone access in your browser settings.');return;}
+  if(privacy||epoch!==generation||(wake&&(!wakeEnabled||document.hidden))){stopAudio();return;}
+  const chunks=[];
+  localRecorder=new MediaRecorder(micStream);
+  const recorder=localRecorder;
+  recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
+  recorder.onstop=async()=>{
+    localRecorder=null;stopAudio();
+    if(privacy||epoch!==generation||(wake&&(!wakeEnabled||document.hidden)))return;
+    setState('thinking','Transcribing your question');
+    try{
+      const result=await request('/transcribe',{method:'POST',body:new Blob(chunks,{type:recorder.mimeType})});
+      if(privacy||epoch!==generation||(wake&&(!wakeEnabled||document.hidden)))return;
+      if(wake){
+        const match=result.text.match(/\b(?:hey|okay|ok)\s+gig\b[\s,.:;!?-]*(.*)/i);
+        if(match){setWakeEnabled(false);if(match[1].trim())await ask(match[1].trim());else await startLocalRecording();}
+        else await startLocalRecording(true);
+      }
+      else if(result.text.trim())await ask(result.text);
+      else setState('ready','No speech detected','Tap the mic to try again');
+    }catch(error){setWakeEnabled(false);notice(error.message);setState('ready','Voice input unavailable');}
+  };
+  audioContext=new (window.AudioContext || window.webkitAudioContext)();
+  analyser=audioContext.createAnalyser();analyser.fftSize=256;
+  audioContext.createMediaStreamSource(micStream).connect(analyser);
+  animateLevel(analyser,()=>Boolean(micStream));
+  recorder.start();notice('');setState('listening',wake?'Listening for “Hey GIG”':'Recording',wake?'Short audio clips are transcribed on your Mac while this page is visible':'Tap the mic to send; recording stops after 15 seconds');
+  recordingTimer=setTimeout(()=>{if(recorder.state==='recording')recorder.stop();},wake?5000:15000);
+}
+
+async function startBrowserListening() {
   const SpeechRecognition=window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) { notice('Speech recognition is unavailable in this browser. Type a question below, or use a supported browser.'); return; }
   try { micStream=await navigator.mediaDevices.getUserMedia({audio:true}); }
@@ -317,6 +359,10 @@ async function startListening() {
 }
 
 async function startWakeListening() {
+  return startLocalRecording(true);
+}
+
+async function startBrowserWakeListening() {
   const SpeechRecognition=window.SpeechRecognition || window.webkitSpeechRecognition;
   if(!SpeechRecognition){notice('“Hey GIG” needs a browser with speech recognition. Use the mic button or type instead.');return;}
   if(document.hidden||privacy)return;
@@ -351,7 +397,7 @@ async function startWakeListening() {
     stopAudio();
     setState('ready','Voice input unavailable','Type a question to continue');
     if(event.error==='network'){
-      notice('Your browser could not reach its speech-recognition service. The mic button uses the same service. Try this link in Chrome on your Android phone, or use keyboard voice typing in the message box. Text chat and spoken replies can still work.');
+      notice('Browser speech recognition is unavailable. Use the mic button for local transcription on your Mac.');
     }else{
       notice(`Voice recognition stopped (${event.error}). Check microphone permission or type your question.`);
     }
@@ -366,7 +412,7 @@ async function startWakeListening() {
 $('pairForm').addEventListener('submit',async(event)=>{event.preventDefault();$('pairError').textContent='';
   try {await request('/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:$('pairCode').value})});showApp();}
   catch(err){$('pairError').textContent=err.message;}});
-$('micButton').addEventListener('click',()=>{if(privacy)return;if(status==='listening'){setWakeEnabled(false);stopAudio();setState('ready','Ready when you are');}else startListening();});
+$('micButton').addEventListener('click',()=>{if(privacy)return;if(localRecorder?.state==='recording'){localRecorder.stop();return;}if(status==='listening'){setWakeEnabled(false);stopAudio();setState('ready','Ready when you are');}else startListening();});
 $('wakeButton').addEventListener('click',()=>{
   if(privacy)return;
   if(wakeEnabled){setWakeEnabled(false);stopAudio();setState('ready','Wake phrase paused','Tap Enable “Hey GIG” when you want foreground listening');}

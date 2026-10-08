@@ -226,6 +226,20 @@ def create_phone_app(data_dir=None):
         response.delete_cookie("gig_phone", path="/")
         return {"forgotten": True}
 
+    @app.post('/transcribe')
+    async def transcribe(request: Request):
+        session(request)
+        audio = bytearray()
+        async for chunk in request.stream():
+            audio.extend(chunk)
+            if len(audio) > 2_000_000:
+                raise HTTPException(413, 'Recording is too large. Keep it under 20 seconds.')
+        if not audio:
+            raise HTTPException(400, 'No recording received.')
+        import asyncio
+        from gig_backend.transcription import transcribe_audio
+        return {'text': await asyncio.to_thread(transcribe_audio, bytes(audio))}
+
     @app.post("/ask")
     def ask(body: AskRequest, request: Request):
         current = session(request)
