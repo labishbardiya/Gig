@@ -19,8 +19,27 @@ def test_pairing_and_no_model(tmp_path, monkeypatch):
     response = client.post('/ask', json={'text': 'Explain gravity', 'model': 'auto'})
     assert response.status_code == 503
     assert 'No model configured' in response.json()['detail']
+
+
+def test_public_demo_mints_anonymous_session_but_blocks_operator_data(tmp_path, monkeypatch):
+    monkeypatch.setenv('GIG_PUBLIC_DEMO', '1')
+    client = TestClient(create_phone_app(tmp_path), base_url='https://demo.example')
+    status = client.get('/status')
+    assert status.status_code == 200
+    assert status.json()['paired'] is True and status.json()['public_demo'] is True
+    assert client.cookies.get('gig_phone')
+    assert client.get('/chats').status_code == 403
+    assert client.get('/documents').status_code == 403
+    assert client.get('/google/status').status_code == 403
+    assert client.get('/calls/status').status_code == 403
+    # Anonymous visitors can still ask a non-persistent question. The built-in
+    # greeting is intentionally available without loading a model.
+    assert client.post('/ask', json={'text': 'hello', 'model': 'auto'}).status_code == 200
+    assert client.post('/ask', json={'text': 'hello', 'model': 'kimi'}).status_code == 403
     assert client.post('/forget').json() == {'forgotten': True}
-    assert client.get('/status').status_code == 401
+    # A subsequent request receives a fresh anonymous demo session rather than
+    # ever exposing the operator workspace.
+    assert client.get('/status').json()['public_demo'] is True
 
 
 def test_rejects_invalid_frame(tmp_path, monkeypatch):

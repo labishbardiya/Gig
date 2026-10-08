@@ -32,25 +32,8 @@ class Workspace:
           CREATE TABLE IF NOT EXISTS memory_embeddings(memory TEXT PRIMARY KEY REFERENCES memories(id) ON DELETE CASCADE,model TEXT,vector TEXT,created REAL);
           CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY,chat TEXT REFERENCES chats(id) ON DELETE CASCADE,state TEXT,prompt TEXT,result TEXT,created REAL,updated REAL);
           CREATE TABLE IF NOT EXISTS run_events(id INTEGER PRIMARY KEY,run TEXT REFERENCES runs(id) ON DELETE CASCADE,phase TEXT,detail TEXT,created REAL);
-          CREATE TABLE IF NOT EXISTS computer_actions(
-            id TEXT PRIMARY KEY,
-            chat_id TEXT REFERENCES chats(id) ON DELETE CASCADE,
-            action TEXT NOT NULL,
-            reason TEXT NOT NULL,
-            payload TEXT NOT NULL,
-            payload_sha256 TEXT NOT NULL,
-            state TEXT NOT NULL,
-            result TEXT NOT NULL,
-            created REAL NOT NULL,
-            updated REAL NOT NULL
-          );
-          CREATE TABLE IF NOT EXISTS computer_action_events(
-            id INTEGER PRIMARY KEY,
-            action_id TEXT REFERENCES computer_actions(id) ON DELETE CASCADE,
-            phase TEXT NOT NULL,
-            detail TEXT NOT NULL,
-            created REAL NOT NULL
-          );
+          CREATE TABLE IF NOT EXISTS google_actions(id TEXT PRIMARY KEY,kind TEXT,payload TEXT,sha TEXT,state TEXT,provider_id TEXT,provider_url TEXT,created REAL);
+          CREATE TABLE IF NOT EXISTS call_actions(id TEXT PRIMARY KEY,payload TEXT,sha TEXT,state TEXT,created REAL);
         ''')
         with self.db:
             self.db.execute("UPDATE runs SET state='interrupted',result='Worker stopped. Not replayed automatically.' WHERE state='running' AND updated<?",(time.time()-45,))
@@ -203,9 +186,6 @@ class OpenClaw:
 
 
 def install_workspace(app, authenticate, store):
-    # Import here to keep the persistent-workspace module independent of the
-    # deliberately narrow computer-action demo implementation.
-    from gig_backend.computer_actions import install_computer_actions
     @app.get('/chats')
     def chats(request: Request):
         authenticate(request)
@@ -272,8 +252,7 @@ def install_workspace(app, authenticate, store):
                 'execution_enabled':enabled,'reachable':reachable,'ready':configured and enabled and reachable,
                 'policy':'Read-only OpenClaw agent config supplied. No auto-retries. Tool-level approvals are not implemented.',
                 'integrations':{'drive':bool(os.getenv('GIG_GOOGLE_CREDENTIALS_FILE')),
-                                'email':False,'calendar':False,'computer_control':False,
-                                'computer_action_demo':True},
+                                'email':False,'calendar':False,'computer_control':False},
                 'memory':('Explicit notes; local semantic retrieval plus lexical fallback.' if os.getenv('GIG_SEMANTIC_MEMORY') == '1'
                            else 'Explicit notes; lexical relevance plus two recent notes. Semantic retrieval is disabled.'),
                 'retention':'Chats and memories persist until deleted. All paired devices share one owner workspace.'}
@@ -341,5 +320,3 @@ def install_workspace(app, authenticate, store):
         changed=bool(store.execute("UPDATE runs SET state='rejected',updated=? WHERE id=? AND state='awaiting_approval'",(time.time(),ident)))
         if changed:store.log(ident,'rejected','User rejected this task')
         return {'rejected':changed}
-
-    install_computer_actions(app, authenticate, store)

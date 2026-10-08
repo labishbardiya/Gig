@@ -16,7 +16,9 @@ from urllib.parse import quote
 from gig_backend.speech import api_key as speech_key, synthesize_with_metrics
 from gig_backend.workspace import Workspace, install_workspace
 from gig_backend.config import load_project_env
-
+from gig_backend.google_workspace import install_google_workspace
+from gig_backend.call_e_phone import install_call_e
+from gig_backend.router import route_request
 
 load_project_env()
 
@@ -45,20 +47,19 @@ SYSTEM = ("You are GIG, a concise voice assistant. Describe only what the image 
 def create_phone_app(data_dir=None):
     root = Path(data_dir or os.getenv("GIG_DATA_DIR", Path(__file__).resolve().parents[1] / "data"))
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    demo_no_pairing = os.getenv("GIG_DEMO_NO_PAIRING", "0") == "1"
     app = FastAPI(title="GIG Phone Gateway", docs_url=None, redoc_url=None, openapi_url=None)
     sessions = {}
-    demo_session = {"expires": float("inf"), "messages": []}
     lock = threading.Lock()
-    code = None
-    expires = float("inf")
-    if not demo_no_pairing:
-        code = f"{secrets.randbelow(1_000_000):06d}"
-        code_path = root / "phone-pair-code"
-        fd = os.open(code_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as file:
-            file.write(code + "\n")
-        expires = time.monotonic() + 900
+    # Public-demo mode is intentionally narrow: a QR visitor receives a fresh,
+    # temporary browser session without learning a pairing secret. Persistent
+    # workspace, documents, Drive and agent routes remain operator-only.
+    public_demo = os.getenv('GIG_PUBLIC_DEMO') == '1' or os.getenv('GIG_DEMO_NO_PAIRING') == '1'
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    code_path = root / "phone-pair-code"
+    fd = os.open(code_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as file:
+        file.write(code + "\n")
+    expires = time.monotonic() + 900
     attempts = {}
     static = Path(__file__).resolve().parents[1] / "phone_app"
     documents = Documents(root)
@@ -66,14 +67,35 @@ def create_phone_app(data_dir=None):
     speech_gate = threading.BoundedSemaphore(1)
 
     def session(request):
-        if demo_no_pairing:
-            return demo_session
-        ident = request.cookies.get("gig_phone")
+        ident = request.cookies.get("gig_phone") or getattr(request.state, 'gig_demo_session', None)
         with lock:
             item = sessions.get(ident)
             if item and item["expires"] > time.monotonic():
                 return item
         raise HTTPException(401, "Pair this phone first")
+
+    def operator_session(request):
+        item = session(request)
+        if item.get('mode') != 'paired':
+            raise HTTPException(403, 'This public demo can answer questions only; saving and workspace tools require the operator session.')
+        return item
+
+    @app.middleware('http')
+    async def public_demo_session(request: Request, call_next):
+        """Mint an isolated, short-lived browser session only in explicit demo mode."""
+        ident = None
+        if public_demo and not request.cookies.get('gig_phone'):
+            ident = secrets.token_urlsafe(32)
+            with lock:
+                sessions[ident] = {'expires': time.monotonic() + 45 * 60,
+                                   'messages': [], 'mode': 'public_demo'}
+            request.state.gig_demo_session = ident
+        response = await call_next(request)
+        if ident:
+            local_host = request.headers.get('host', '').split(':', 1)[0].lower() in ('127.0.0.1', 'localhost')
+            response.set_cookie('gig_phone', ident, max_age=45 * 60, httponly=True,
+                                secure=not local_host, samesite='strict', path='/')
+        return response
 
     @app.get("/")
     def home():
@@ -109,8 +131,6 @@ def create_phone_app(data_dir=None):
 
     @app.post("/pair")
     def pair(body: PairRequest, request: Request, response: Response):
-        if demo_no_pairing:
-            return {"paired": True, "demo_no_pairing": True}
         remote = request.client.host if request.client else "unknown"
         now = time.monotonic()
         with lock:
@@ -122,7 +142,7 @@ def create_phone_app(data_dir=None):
                 attempts[remote] = recent
                 raise HTTPException(401, "Incorrect or expired pairing code")
             ident = secrets.token_urlsafe(32)
-            sessions[ident] = {"expires": now + 8 * 3600, "messages": []}
+            sessions[ident] = {"expires": now + 8 * 3600, "messages": [], "mode": "paired"}
             attempts.pop(remote, None)
         local_host = request.headers.get('host', '').split(':', 1)[0].lower() in ('127.0.0.1', 'localhost')
         response.set_cookie("gig_phone", ident, max_age=8 * 3600, httponly=True,
@@ -131,9 +151,9 @@ def create_phone_app(data_dir=None):
 
     @app.get("/status")
     def status(request: Request):
-        session(request)
-        return {"paired": True, "pairing_required": not demo_no_pairing,
-                "public_demo": demo_no_pairing, "local_text": bool(os.getenv("GIG_MODEL")),
+        current = session(request)
+        return {"paired": True, "public_demo": current.get('mode') == 'public_demo',
+                "local_text": bool(os.getenv("GIG_MODEL")),
                 "local_vision": bool(os.getenv("GIG_VISION_MODEL")),
                 "kimi": bool(os.getenv("GIG_NVIDIA_API_KEY")),
                 "drive_configured": bool(os.getenv('GIG_GOOGLE_CREDENTIALS_FILE')),
@@ -148,9 +168,12 @@ def create_phone_app(data_dir=None):
             raise HTTPException(422, 'Speech text cannot be blank')
         with lock:
             now = time.monotonic()
+            if current.get('mode') == 'public_demo' and current.get('speech_requests', 0) >= 6:
+                raise HTTPException(429, 'Public-demo speech limit reached. Use the written reply or restart the supervised demo.')
             if now - current.get('last_speech', -100) < 2:
                 raise HTTPException(429, 'Please wait before requesting another spoken reply.')
             current['last_speech'] = now
+            current['speech_requests'] = current.get('speech_requests', 0) + 1
         if not speech_gate.acquire(blocking=False):
             raise HTTPException(429, 'Speech is already being generated. Please wait.')
         try:
@@ -166,17 +189,17 @@ def create_phone_app(data_dir=None):
 
     @app.get('/documents')
     def saved_documents(request: Request):
-        session(request)
+        operator_session(request)
         return {'documents': documents.list()}
 
     @app.post('/documents')
     def save_document(body: SaveDocument, request: Request):
-        session(request)
+        operator_session(request)
         return documents.save(body)
 
     @app.get('/documents/{ident}/download')
     def download_document(ident: str, request: Request):
-        session(request)
+        operator_session(request)
         row = documents.get(ident)
         return Response(row['content'], media_type=row['mime'], headers={
             'Content-Disposition': "attachment; filename*=UTF-8''" + quote(row['filename']),
@@ -184,12 +207,12 @@ def create_phone_app(data_dir=None):
 
     @app.delete('/documents/{ident}')
     def delete_document(ident: str, request: Request):
-        session(request)
+        operator_session(request)
         return documents.delete(ident)
 
     @app.post('/documents/{ident}/drive')
     def drive_upload(ident: str, body: DriveApproval, request: Request):
-        session(request)
+        operator_session(request)
         return documents.upload_drive(ident, body)
 
     @app.post("/forget")
@@ -203,6 +226,10 @@ def create_phone_app(data_dir=None):
     @app.post("/ask")
     def ask(body: AskRequest, request: Request):
         current = session(request)
+        if current.get('mode') == 'public_demo' and body.chat_id:
+            raise HTTPException(403, 'Public-demo requests cannot access the operator workspace')
+        if current.get('mode') == 'public_demo' and body.model == 'kimi':
+            raise HTTPException(403, 'Cloud reasoning is disabled for the public demo; choose Auto or Local.')
         if body.chat_id: workspace.chat(body.chat_id)
         if not body.image and body.operation == 'identify' and body.text.strip().lower().strip('!.?, ') in ('hi', 'hello', 'hey'):
             if body.chat_id: workspace.append(body.chat_id,body.text,'Hi! I’m here. What would you like me to look at or help with?')
@@ -223,9 +250,10 @@ def create_phone_app(data_dir=None):
             camera_image(body.image)
         local_model = os.getenv("GIG_VISION_MODEL" if image_b64 else "GIG_MODEL", "")
         key = os.getenv("GIG_NVIDIA_API_KEY", "")
-        selected = body.model
-        if selected == "auto":
-            selected = "local" if local_model else "none"
+        decision = route_request(requested=body.model, text=body.text, has_image=bool(image_b64),
+                                 operation=body.operation, local_available=bool(local_model),
+                                 cloud_available=bool(key))
+        selected = decision.model
         if selected == "local" and not local_model:
             raise HTTPException(503, "Local model not configured for this input")
         if selected == "kimi" and not key:
@@ -277,11 +305,13 @@ def create_phone_app(data_dir=None):
             with lock:
                 current["messages"] = (history + [{"role": "user", "content": body.text},
                                                  {"role": "assistant", "content": answer}])[-8:]
-        return {"answer": answer, "model": selected,
+        return {"answer": answer, "model": selected, "route": decision.public(),
                 "model_request_ms": round((time.perf_counter() - started) * 1000, 1),
                 "timing_scope": "model request only; excludes speech and network"}
 
-    install_workspace(app,session,workspace)
+    install_workspace(app,operator_session,workspace)
+    install_google_workspace(app, operator_session, workspace)
+    install_call_e(app, operator_session, workspace)
     if os.getenv('GIG_ENABLE_LIVE_VOICE') == '1':
         from gig_backend.live_voice import install_live_voice
         install_live_voice(app, session, root)

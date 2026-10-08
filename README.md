@@ -13,6 +13,9 @@ Phone-GIG Drive authorization and local semantic-memory setup: see
 [DRIVE_AND_MEMORY_SETUP.md](DRIVE_AND_MEMORY_SETUP.md). These credentials remain
 outside the repository and outside the public QR tunnel.
 
+Call-E's phone proposal/approval boundary and the remaining provider-adapter
+requirement are documented in [CALL_E_SETUP.md](CALL_E_SETUP.md).
+
 ## Start
 
 ### Optional cloud chat and Fish Audio

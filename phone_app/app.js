@@ -11,7 +11,8 @@ let speechPlayer = null, speechURL = null, speechAbort = null, speechEpoch = 0;
 let spokenReplies = true;
 let speechProvider = 'fish';
 let selectedChat = null, chatLoadGeneration = 0, workspaceReady = false, harnessStatus = null;
-let activePanel = null, workspaceRefresh = null;
+let activePanel = null, workspaceRefresh = null, publicDemo = false;
+let runtimeStatus = null, wakeEnabled = false;
 const ambient = $('ambientVideo');
 let motionEnabled = !matchMedia('(prefers-reduced-motion: reduce)').matches;
 function updateMotion(){
@@ -34,6 +35,28 @@ function setState(next, line, hint='') {
   $('micButton').classList.toggle('active', next === 'listening');
   $('micButton').setAttribute('aria-label', next === 'listening' ? 'Stop listening' : 'Start listening');
 }
+function setWakeEnabled(enabled) {
+  wakeEnabled=enabled;
+  $('wakeButton').setAttribute('aria-pressed',String(enabled));
+  $('wakeButton').textContent=enabled?'“Hey GIG” is on':'Enable “Hey GIG”';
+}
+function clearLevel() {
+  if(levelFrame) cancelAnimationFrame(levelFrame);
+  levelFrame=0; orb.style.setProperty('--level','1'); orb.style.setProperty('--voice-energy','0');
+}
+function animateLevel(analyserNode, sourceActive) {
+  const samples=new Uint8Array(analyserNode.frequencyBinCount);
+  const tick=()=>{
+    if(!sourceActive()) return clearLevel();
+    analyserNode.getByteFrequencyData(samples);
+    const average=samples.reduce((a,b)=>a+b,0)/samples.length;
+    const energy=Math.min(1,average/110);
+    orb.style.setProperty('--voice-energy',String(energy));
+    orb.style.setProperty('--level',String(1+Math.min(.16,energy*.16)));
+    levelFrame=requestAnimationFrame(tick);
+  };
+  tick();
+}
 function notice(message) {
   const scanning=!$('scanReview').classList.contains('hidden');
   $('notice').textContent=message; $('notice').classList.toggle('hidden',!message||scanning);
@@ -50,13 +73,15 @@ async function refreshStatus() {
   try {
     const info = await request('/status');
     if(appScreen.classList.contains('hidden')){pairScreen.classList.add('hidden');appScreen.classList.remove('hidden');setState('ready','Ready when you are','Talk, type, or use your camera');}
-    speechProvider=info.speech_provider || 'fish';
-    $('destinationHelp').textContent=info.public_demo
+    runtimeStatus=info;
+    speechProvider=info.speech_provider || 'fish'; publicDemo=!!info.public_demo;
+    document.body.classList.toggle('public-demo', publicDemo);
+    $('destinationHelp').textContent=publicDemo
       ? 'Public demo mode: anyone with this link can use GIG while the server is online.'
       : 'Private link; requires a paired device and the server online. Nothing is published publicly.';
     $('modelSelect').querySelector('[value="kimi"]').disabled=!info.kimi;
     $('modelInfo').textContent = `local ${info.local_text?'configured':'not set'} · vision ${info.local_vision?'configured':'not set'} · Drive ${info.drive_configured?'configured':'not connected'}`;
-    if(!workspaceReady){workspaceReady=true;await initializeWorkspace();}
+    if(!workspaceReady){workspaceReady=true;if(publicDemo){clearConversation();$('chatTitle').textContent='Live demo';}else await initializeWorkspace();}
   } catch { pairScreen.classList.remove('hidden'); appScreen.classList.add('hidden'); $('stateTag').textContent='unpaired'; }
 }
 function stopAudio() {
@@ -66,8 +91,7 @@ function stopAudio() {
   if(speechURL){URL.revokeObjectURL(speechURL);speechURL=null;}
   if (recognition) { try { recognition.abort(); } catch {} recognition=null; }
   if (micStream) { micStream.getTracks().forEach(t=>t.stop()); micStream=null; }
-  if (levelFrame) cancelAnimationFrame(levelFrame);
-  levelFrame=0; orb.style.setProperty('--level','1');
+  clearLevel();
   if (audioContext) { audioContext.close().catch(()=>{}); audioContext=null; }
   window.speechSynthesis?.cancel();
 }
@@ -161,26 +185,30 @@ async function renderTasks(){activePanel='tasks';const panel=panelHeader('Agent 
       reject.onclick=async()=>{try{await request('/runs/'+run.id+'/reject',{method:'POST'});await renderTasks();}catch(err){notice(err.message);}};
       controls.append(approve,reject);row.append(controls);}
     list.append(row);}
-  const computerHeading=element('h3','computer-heading','Computer proof');
-  panel.append(computerHeading,element('p','panel-description','This is a deliberately read-only harness demonstration: propose → review → approve → verify. It reports this server’s identity only; it cannot open apps, read files, or control the desktop.'));
-  const computerButton=element('button','computer-prepare','Prepare read-only PC check');computerButton.type='button';computerButton.disabled=!selectedChat;
-  computerButton.onclick=async()=>{if(!selectedChat)return;computerButton.disabled=true;
-    try{await request('/computer/actions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:selectedChat,action:'system_status',reason:'Verify the GIG compute server for this approved demonstration.'})});await renderTasks();notice('Read-only PC check prepared. Review it before approval.');}
-    catch(err){notice(err.message);computerButton.disabled=false;}};panel.append(computerButton);
-  const actions=await request('/computer/actions');const computerList=element('div','computer-list');panel.append(computerList);
-  if(!actions.length)computerList.append(element('p','panel-empty','No computer checks prepared.'));
-  for(const action of actions){const row=element('article','computer-row');row.append(element('strong','',action.action.replace('_',' ')),element('small','run-state','State: '+action.state),element('p','computer-reason',action.reason));
-    if(action.result){try{const proof=JSON.parse(action.result);row.append(element('p','computer-result',`${proof.hostname} · ${proof.operating_system} · ${proof.machine} · verified`));}catch{row.append(element('p','computer-result',action.result));}}
-    const trace=element('button','trace-button','Show audit trail');trace.type='button';trace.onclick=async()=>{const prior=row.querySelector('.run-timeline');if(prior){prior.remove();trace.textContent='Show audit trail';return;}try{const events=await request('/computer/actions/'+action.id+'/events');const timeline=element('ol','run-timeline');for(const event of events)timeline.append(element('li','',`${event.phase} · ${event.detail}`));row.append(timeline);trace.textContent='Hide audit trail';}catch(err){notice(err.message);}};row.append(trace);
-    if(action.state==='awaiting_approval'){const controls=element('div','run-controls');const approve=element('button','','Approve read-only check'),reject=element('button','','Reject');
-      approve.onclick=async()=>{if(!confirm('Run the read-only server identity check? It cannot control the PC.'))return;try{await request('/computer/actions/'+action.id+'/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmation:'RUN READ-ONLY COMPUTER CHECK',payload_sha256:action.payload_sha256})});await renderTasks();}catch(err){notice(err.message);}};
-      reject.onclick=async()=>{try{await request('/computer/actions/'+action.id+'/reject',{method:'POST'});await renderTasks();}catch(err){notice(err.message);}};controls.append(approve,reject);row.append(controls);}
-    computerList.append(row);}
 }
 function renderConnections(){activePanel='connections';const panel=panelHeader('Connections','Availability is reported by this server. An account is not connected just because a button exists.');
   const status=harnessStatus?.integrations||{};
   for(const [name,ready] of Object.entries(status)){const row=element('div','connection-row');row.append(element('strong','',name.replace('_',' ')),element('span','',ready?'Configured':'Not connected'));panel.append(row);}
   panel.append(element('p','panel-description',harnessStatus?.retention||''));
+}
+function renderSystemHealth(){
+  activePanel='health';
+  $('healthButton').setAttribute('aria-expanded','true');
+  const panel=panelHeader('System status','These indicators show configuration only. They never reveal keys, account names, file paths, or private prompts.');
+  const rows=[
+    ['Local conversation',runtimeStatus?.local_text,'RTX/PC model route'],
+    ['Camera understanding',runtimeStatus?.local_vision,'Selected frame only'],
+    ['Speech replies',runtimeStatus?.speech_configured,`${runtimeStatus?.speech_provider||'Speech'} provider`],
+    ['Cloud reasoning',runtimeStatus?.kimi,'Explicit Kimi K3 selection only'],
+    ['Google Drive',runtimeStatus?.drive_configured,'Approved upload only'],
+    ['Agent gateway',harnessStatus?.ready,'Server-side, approval-gated tasks'],
+    ['Network',navigator.onLine,'This phone has an internet connection']
+  ];
+  for(const [name,ready,detail] of rows){const row=element('div','connection-row');
+    const copy=element('span','');copy.append(element('strong','',name),document.createTextNode(' · '+detail));
+    row.append(copy,element('span',ready?'health-ok':'health-off',ready?'Ready':'Not connected'));panel.append(row);}
+  const note=element('p','panel-description','“Hey GIG” is foreground-only browser listening. It stops when you leave or hide this page, and privacy mode stops capture immediately.');panel.append(note);
+  const close=panel.querySelector('.panel-heading button');const originalClose=close.onclick;close.onclick=()=>{originalClose();$('healthButton').setAttribute('aria-expanded','false');};
 }
 $('newChatButton').onclick=()=>createChat().catch(err=>notice(err.message));
 $('openSidebar').onclick=()=>$('workspaceSidebar').classList.add('mobile-open');
@@ -188,6 +216,7 @@ $('closeSidebar').onclick=()=>$('workspaceSidebar').classList.remove('mobile-ope
 $('memoryButton').onclick=()=>{ $('workspaceSidebar').classList.remove('mobile-open');renderMemory().catch(err=>notice(err.message));};
 $('tasksButton').onclick=()=>{ $('workspaceSidebar').classList.remove('mobile-open');renderTasks().catch(err=>notice(err.message));};
 $('connectionsButton').onclick=()=>{ $('workspaceSidebar').classList.remove('mobile-open');renderConnections();};
+$('healthButton').onclick=()=>{if(activePanel==='health'){$('workspacePanel').classList.add('hidden');activePanel=null;$('healthButton').setAttribute('aria-expanded','false');}else renderSystemHealth();};
 $('renameChatButton').onclick=async()=>{if(!selectedChat)return;const title=prompt('Rename chat', $('chatTitle').textContent);
   if(!title?.trim())return;try{await request('/chats/'+selectedChat,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:title.trim()})});
     $('chatTitle').textContent=title.trim();await loadChats();}catch(err){notice(err.message);}};
@@ -220,6 +249,12 @@ async function speak(text) {
     const blob=await response.blob();
     if(epoch!==speechEpoch||privacy)return;
     speechURL=URL.createObjectURL(blob);speechPlayer=new Audio(speechURL);
+    // The blob is local to this response, so this analyzer reflects only the
+    // reply currently being played; it does not capture or retain microphone audio.
+    audioContext=new (window.AudioContext || window.webkitAudioContext)();
+    analyser=audioContext.createAnalyser();analyser.fftSize=256;
+    audioContext.createMediaElementSource(speechPlayer).connect(analyser);analyser.connect(audioContext.destination);
+    animateLevel(analyser,()=>Boolean(speechPlayer&&!speechPlayer.paused));
     speechPlayer.onended=()=>{if(epoch===speechEpoch){stopAudio();setState('ready','Ready when you are');}};
     speechPlayer.onerror=()=>{if(epoch===speechEpoch){stopAudio();notice('Audio playback failed. The reply remains in the conversation.');setState('ready','Ready when you are');}};
     await speechPlayer.play();
@@ -232,7 +267,7 @@ async function speak(text) {
 }
 async function ask(text) {
   text=text.trim(); if (!text || busy || privacy) return;
-  if(!selectedChat){notice('Workspace is still loading. Try again in a moment.');return;}
+  if(!selectedChat&&!publicDemo){notice('Workspace is still loading. Try again in a moment.');return;}
   // Deliberately narrow commands. The model cannot authorize storage or uploads.
   if (/^(?:please\s+)?(?:scan\b|save\s+(?:it|this|that|the\s+(?:page|document))\b)/i.test(text)) {
     addMessage('user',text); stopAudio();
@@ -255,7 +290,7 @@ async function ask(text) {
       body:JSON.stringify({chat_id:selectedChat,text,model:$('modelSelect').value,image})});
     if (privacy || thisGeneration!==generation) return;
     addMessage('assistant',result.answer); $('modelInfo').textContent=`${result.model} · ${Math.round(result.model_request_ms)} ms model request`;
-    loadChats().catch(()=>{});
+    if(!publicDemo)loadChats().catch(()=>{});
     speak(result.answer);
   } catch(err) { if(!privacy && thisGeneration===generation) { notice(err.message); setState('ready','Try again','Check the model connection or choose another model'); } }
   finally { busy=false; }
@@ -270,9 +305,7 @@ async function startListening() {
   audioContext=new (window.AudioContext || window.webkitAudioContext)();
   analyser=audioContext.createAnalyser(); analyser.fftSize=256;
   audioContext.createMediaStreamSource(micStream).connect(analyser);
-  const samples=new Uint8Array(analyser.frequencyBinCount);
-  const tick=()=>{if(!micStream)return; analyser.getByteFrequencyData(samples); const average=samples.reduce((a,b)=>a+b,0)/samples.length;
-    orb.style.setProperty('--level',String(1+Math.min(.23,average/330))); levelFrame=requestAnimationFrame(tick);}; tick();
+  animateLevel(analyser,()=>Boolean(micStream));
   recognition=new SpeechRecognition(); recognition.lang=navigator.language || 'en-US'; recognition.continuous=false; recognition.interimResults=true;
   let transcript='';
   recognition.onresult=(event)=>{transcript=Array.from(event.results).map(r=>r[0].transcript).join(' ');
@@ -283,24 +316,65 @@ async function startListening() {
   catch { stopAudio(); notice('Could not start speech recognition. Type a question instead.'); }
 }
 
+async function startWakeListening() {
+  const SpeechRecognition=window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SpeechRecognition){notice('“Hey GIG” needs a browser with speech recognition. Use the mic button or type instead.');return;}
+  if(document.hidden||privacy)return;
+  stopAudio();
+  try { micStream=await navigator.mediaDevices.getUserMedia({audio:true}); }
+  catch { setWakeEnabled(false);notice('Microphone access was blocked. Allow it in browser settings.');return; }
+  if(privacy||document.hidden){stopAudio();return;}
+  audioContext=new (window.AudioContext || window.webkitAudioContext)();
+  analyser=audioContext.createAnalyser();analyser.fftSize=256;
+  audioContext.createMediaStreamSource(micStream).connect(analyser);
+  animateLevel(analyser,()=>Boolean(micStream&&wakeEnabled));
+  recognition=new SpeechRecognition();recognition.lang=navigator.language||'en-US';recognition.continuous=true;recognition.interimResults=true;
+  recognition.onresult=(event)=>{
+    for(let i=event.resultIndex;i<event.results.length;i++){
+      const heard=event.results[i][0].transcript.trim();
+      $('hintText').textContent=heard||'Say “Hey GIG” followed by your question';
+      if(!event.results[i].isFinal)continue;
+      const match=heard.match(/\b(?:hey|okay|ok)\s+gig\b[\s,.:;!?-]*(.*)/i);
+      if(!match)continue;
+      const question=match[1].trim();
+      setWakeEnabled(false);stopAudio();
+      if(question){ask(question);}
+      else {setState('ready','Wake phrase heard','Ask your question after the tone');setTimeout(()=>{if(!privacy)startListening();},120);}
+      return;
+    }
+  };
+  recognition.onerror=(event)=>{if(event.error!=='aborted'){setWakeEnabled(false);stopAudio();notice(`Wake listening stopped: ${event.error}. Use the mic button or enable it again.`);}};
+  recognition.onend=()=>{
+    if(wakeEnabled&&!privacy&&!document.hidden){stopAudio();setTimeout(()=>{if(wakeEnabled&&!privacy&&!document.hidden)startWakeListening();},250);}
+  };
+  try{recognition.start();setState('listening','Listening for “Hey GIG”','This is foreground-only and turns off when you leave this page');}
+  catch{setWakeEnabled(false);stopAudio();notice('Could not start wake listening. Use the mic button or type instead.');}
+}
+
 $('pairForm').addEventListener('submit',async(event)=>{event.preventDefault();$('pairError').textContent='';
   try {await request('/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:$('pairCode').value})});showApp();}
   catch(err){$('pairError').textContent=err.message;}});
-$('micButton').addEventListener('click',()=>{if(privacy)return;if(status==='listening'){stopAudio();setState('ready','Ready when you are');}else startListening();});
+$('micButton').addEventListener('click',()=>{if(privacy)return;if(status==='listening'){setWakeEnabled(false);stopAudio();setState('ready','Ready when you are');}else startListening();});
+$('wakeButton').addEventListener('click',()=>{
+  if(privacy)return;
+  if(wakeEnabled){setWakeEnabled(false);stopAudio();setState('ready','Wake phrase paused','Tap Enable “Hey GIG” when you want foreground listening');}
+  else {setWakeEnabled(true);startWakeListening();}
+});
 $('cameraButton').addEventListener('click',async()=>{if(privacy)return;if(cameraStream){stopCamera();useNextFrame=false;return;}
   try {cameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280}},audio:false});
     camera.srcObject=cameraStream;$('cameraPanel').classList.remove('hidden');useNextFrame=true;
     $('cameraButton').setAttribute('aria-label','Turn camera off');notice('Camera on. Your next question will include one frame, not a live stream.');}
   catch {notice('Camera access was blocked. Allow it in browser settings.');}});
-$('privacyButton').addEventListener('click',()=>{privacy=!privacy;stopEverything();
+$('privacyButton').addEventListener('click',()=>{privacy=!privacy;setWakeEnabled(false);stopEverything();
   if(privacy) discardScan();
   $('privacyButton').classList.toggle('active',privacy);$('privacyButton').setAttribute('aria-pressed',String(privacy));
   $('privacyButton').textContent=privacy?'Privacy on':'Privacy off';
   setState(privacy?'privacy':'ready',privacy?'Capture paused':'Ready when you are',privacy?'Mic and camera are off':'Tap the mic and ask a question');
   notice(privacy?'Software capture is off. This is not a physical hardware cut-off.':'');});
-$('stopButton').addEventListener('click',()=>{stopAudio();if(!privacy)setState('ready','Ready when you are');});
+$('stopButton').addEventListener('click',()=>{setWakeEnabled(false);stopAudio();if(!privacy)setState('ready','Ready when you are');});
 $('textForm').addEventListener('submit',(event)=>{event.preventDefault();if(busy||privacy){notice(privacy?'Turn Privacy off before sending. Your draft is kept.':'Please wait for the current reply. Your draft is kept.');return;}const input=$('textInput');const value=input.value;input.value='';ask(value);});
 $('forgetButton').addEventListener('click',async()=>{stopEverything();try{await request('/forget',{method:'POST'});}catch{}location.reload();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&wakeEnabled){setWakeEnabled(false);stopAudio();if(!privacy)setState('ready','Wake phrase paused','Return to this page and enable it again when you are ready');}});
 refreshStatus().then(()=>{});
 
 function captureScan() {

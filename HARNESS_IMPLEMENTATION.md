@@ -16,15 +16,9 @@ The OpenClaw Gateway is pinned to `2026.9.8` in `vendor/openclaw-runtime/package
 - OpenClaw model completion succeeded on this Mac: the isolated Gateway returned `GIG ready` from the local `qwen3:4b` model. Its first configuration failed from a 4k Ollama context while OpenClaw sent about 6.9k tokens. A 16k context and reduced bootstrap/skill injection fixed the completion path. One approved task through the full phone API completed in **30.1 seconds** and wrote two chat messages. This is a single warm local result, not a latency distribution or a PC measurement.
 - The UI now includes chat title search, JSON export, explicit memory search/edit/delete and a per-task lifecycle timeline. The timeline records state transitions, not OpenClaw's internal tool calls.
 
-## Demo-safe computer action boundary
-
-The phone gateway exposes one runnable **read-only** computer-action demonstration: `system_status`. It is deliberately not arbitrary desktop control. A paired user creates an immutable proposal containing the chat, the action and their reason. The server returns a SHA-256 fingerprint of that exact reviewed payload. Execution requires the exact confirmation phrase `RUN READ-ONLY COMPUTER CHECK` plus that fingerprint, expires after ten minutes, and produces an audit timeline: `prepared → approved → verified` (or `rejected`, `expired`, or `unknown`).
-
-On approval it returns only the host's name, operating system, architecture and server timestamp. It does not spawn a shell, access user files, open an app, send keystrokes, or run a model-supplied command. This gives the presentation a truthful demonstration of the action harness's safety shape. Real PC control remains unimplemented: every future action needs its own typed schema, narrow allowlist, preview, approval, verifier, audit record and tests.
-
 ## Gaps that prevent a 100% software claim
 
-- No tested computer-use worker that controls desktop applications. The current safe computer-action proof only reads server identity/status and cannot control the PC from the phone.
+- No tested computer-use worker or PC-control route. The phone app cannot control desktop applications.
 - No connected Google OAuth account, Drive upload acceptance, email, calendar or task provider acceptance on the target PC.
 - The browser voice path uses browser speech recognition and synchronous TTS. The Pipecat/WebRTC path is opt-in and is not wired into this phone UI; conversational interruption and first-audio latency are not established end to end.
 - Visual research with citations, long-horizon question clarification, semantic memory retrieval, person recognition, display overlay and physical privacy-switch events are not accepted on the target device.
@@ -36,6 +30,16 @@ On approval it returns only the host's name, operating system, architecture and 
 2. In the project folder, run `uv sync --frozen --python 3.13` and `npm install --prefix vendor/openclaw-runtime --ignore-scripts --save-exact openclaw@2026.9.8`.
 3. Run `uv run python run_harness.py`. This starts the two loopback services with one fresh private token and prints the phone app's local address. The pairing code is in `data/openclaw-state/phone/phone-pair-code`; do not transmit that file publicly.
 4. Before making the phone URL reachable outside the PC, configure an authenticated private tunnel, verify both the paired phone flow and the OpenClaw model completion, then measure p50/p95 separately for model, first voice audio, full spoken reply, image question, scan and approved task completion. Do not expose raw Ollama or OpenClaw publicly.
+
+## QR presentation mode
+
+Set `GIG_PUBLIC_DEMO=1` only for a short supervised QR demonstration. A visitor
+receives a fresh, 45-minute browser session automatically, so no pairing code is
+needed. That session may ask text or camera questions, but cannot open the
+operator's chats, memories, files, Drive connection, agent tasks, or any action
+route. Cloud Kimi selection is disabled and speech is capped for that temporary
+session. The normal paired operator session remains required for saved files and
+workspace tools. Turn public-demo mode off after the presentation.
 
 ## Why this design
 
