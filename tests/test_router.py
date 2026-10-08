@@ -1,6 +1,13 @@
 from gig_backend.router import route_request
 
 
+def test_enabled_cloud_auto_routes_complex_text_only():
+    args = dict(requested='auto', text='Research this deeply', operation='identify',
+                local_available=True, cloud_available=True, allow_cloud_auto=True)
+    assert route_request(**args, has_image=False).model == 'kimi'
+    assert route_request(**args, has_image=True).model == 'local'
+
+
 def test_auto_never_sends_data_to_cloud_without_selection():
     result = route_request(requested='auto', text='Research this deeply', has_image=False,
                            operation='identify', local_available=True, cloud_available=True)

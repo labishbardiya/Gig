@@ -17,13 +17,17 @@ class RouteDecision:
 
 
 def route_request(*, requested: str, text: str, has_image: bool, operation: str,
-                  local_available: bool, cloud_available: bool) -> RouteDecision:
+                  local_available: bool, cloud_available: bool, allow_cloud_auto: bool = False) -> RouteDecision:
     """`auto` remains private/local; cloud is selected only by the user."""
     lowered = text.lower()
     if requested == 'kimi':
         return RouteDecision('kimi', 'User explicitly selected cloud reasoning')
     if requested == 'local':
         return RouteDecision('local', 'User explicitly selected the local model')
+    if allow_cloud_auto and cloud_available and not has_image and any(
+        phrase in lowered for phrase in ('research', 'compare', 'analyze', 'analyse', 'code', 'debug', 'step by step', 'plan', 'explain in detail')
+    ):
+        return RouteDecision('kimi', 'Cloud Auto is enabled; complex text reasoning uses the configured NVIDIA model')
     if has_image and operation == 'scan':
         return RouteDecision('local' if local_available else 'none',
                              'Document extraction uses the configured local vision model',

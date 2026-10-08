@@ -7,6 +7,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 def load_project_env() -> None:
     """Load local settings without replacing variables supplied by the OS."""
+    if os.getenv('GIG_SKIP_PROJECT_ENV') == '1':
+        return
     path = PROJECT_ROOT / ".env"
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
