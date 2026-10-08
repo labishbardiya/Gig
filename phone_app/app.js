@@ -343,7 +343,19 @@ async function startWakeListening() {
       return;
     }
   };
-  recognition.onerror=(event)=>{if(event.error!=='aborted'){setWakeEnabled(false);stopAudio();notice(`Wake listening stopped: ${event.error}. Use the mic button or enable it again.`);}};
+  recognition.onerror=(event)=>{
+    if(event.error==='aborted')return;
+    setWakeEnabled(false);
+    // Detach the end callback before aborting the failed recognizer.
+    recognition.onend=null;
+    stopAudio();
+    setState('ready','Voice input unavailable','Type a question to continue');
+    if(event.error==='network'){
+      notice('Your browser could not reach its speech-recognition service. The mic button uses the same service. Try this link in Chrome on your Android phone, or use keyboard voice typing in the message box. Text chat and spoken replies can still work.');
+    }else{
+      notice(`Voice recognition stopped (${event.error}). Check microphone permission or type your question.`);
+    }
+  };
   recognition.onend=()=>{
     if(wakeEnabled&&!privacy&&!document.hidden){stopAudio();setTimeout(()=>{if(wakeEnabled&&!privacy&&!document.hidden)startWakeListening();},250);}
   };
